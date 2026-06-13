@@ -1,0 +1,256 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — KeyAuth{% endblock %}
+
+{% block content %}
+<div class="dashboard-page">
+
+  <!-- Lockout warning -->
+  {% if acs_state and acs_state.locked %}
+  <div class="flash flash-error" style="margin-bottom: 1.5rem; border-radius: var(--radius);">
+    <span class="flash-icon">🚨</span>
+    <div>
+      <strong>Continuous Authentication Lockout Active:</strong> A typing rhythm anomaly was detected and the session was locked.
+      Please <a href="{{ url_for('logout') }}" style="text-decoration: underline; font-weight: bold; color: inherit;">logout</a> and sign in again to restore full access.
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Hero -->
+  <div class="dash-hero">
+    <div class="dash-hero-text">
+      <h1 class="dash-title">Welcome, <span class="accent">{{ username }}</span></h1>
+      <p class="dash-subtitle">Biometric Keystroke Dynamics Profile Console.</p>
+    </div>
+    <div class="dash-badge">
+      <span class="stage-pill">Stage 1 ✓</span>
+      <span class="stage-pill {{ '' if stage2_ready else 'stage-next' }}">Stage 2 {{ '✓' if stage2_ready else '— ML' }}</span>
+      <span class="stage-pill {{ '' if stage3_ready else 'stage-next' }}">Stage 3 {{ '✓' if stage3_ready else '— Verify' }}</span>
+      <span class="stage-pill {{ '' if stage4_ready else 'stage-next' }}">Stage 4 {{ '✓' if stage4_ready else '— Demo' }}</span>
+    </div>
+  </div>
+
+  <!-- Quick Navigation -->
+  <div class="stats-grid" style="margin-top: 1.5rem; margin-bottom: 1.5rem;">
+    <div class="stat-card" style="cursor: pointer; text-align: left;" onclick="window.location.href='{{ url_for('session_demo') }}'">
+      <h3 style="color: var(--accent); margin-bottom: 0.5rem; font-size: 1.05rem;">💻 Continuous Auth Demo</h3>
+      <p style="font-size: 0.82rem; color: var(--text-dim); line-height: 1.4;">Run the 8-prompt continuous authentication hijack simulation with real-time confidence tracking.</p>
+    </div>
+    <div class="stat-card" style="cursor: pointer; text-align: left;" onclick="window.location.href='{{ url_for('about') }}'">
+      <h3 style="color: var(--success); margin-bottom: 0.5rem; font-size: 1.05rem;">ℹ️ How it Works</h3>
+      <p style="font-size: 0.82rem; color: var(--text-dim); line-height: 1.4;">Read a brief overview of the capture-to-verification pipeline and view the system architecture diagram.</p>
+    </div>
+  </div>
+
+  <!-- Sample stats (sanity check) -->
+  {% if sample_stats %}
+  <div class="stats-grid">
+    <div class="stat-card">
+      <div class="stat-value">{{ sample_stats.n_events }}</div>
+      <div class="stat-label">Events in latest sample</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">{{ sample_stats.min_delta }}</div>
+      <div class="stat-label">Min inter-event gap (ms)</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">{{ sample_stats.max_delta }}</div>
+      <div class="stat-label">Max inter-event gap (ms)</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value">{{ rows|length }}</div>
+      <div class="stat-label">Sequences recorded</div>
+    </div>
+  </div>
+
+  <!-- Time deltas preview -->
+  <div class="section-card">
+    <h2 class="card-heading">Inter-event Deltas — Latest Sequence (ms)</h2>
+    <div class="delta-row">
+      {% for d in sample_stats.deltas_ms %}
+        <div class="delta-chip {{ 'delta-fast' if d < 50 else ('delta-med' if d < 150 else 'delta-slow') }}">
+          {{ d }}
+        </div>
+      {% endfor %}
+      {% if sample_stats.n_events > 11 %}<div class="delta-chip delta-more">…</div>{% endif %}
+    </div>
+    <p class="card-note">
+      Non-zero, non-identical deltas confirm keystroke capture is working correctly.
+      Values of 0 or all-identical would indicate a bug in the JS listener.
+    </p>
+  </div>
+  {% endif %}
+
+  {% if latest_embedding %}
+  <!-- Fingerprint vector -->
+  <div class="section-card embedding-card">
+    <h2 class="card-heading">Latest Fingerprint — 530-dim Sparse Vector</h2>
+    <p class="card-note" style="margin-bottom:1rem;">
+      Statistical summary of your keystrokes (dwell times, flight times, structural markers).
+      Showing the first 16 dimensions (use Python API to see all 530).
+      Values of -1.0 indicate keys/digraphs not present in this sequence.
+    </p>
+    <div class="embedding-grid">
+      {% for i, val in enumerate(latest_embedding[:16]) %}
+        <div class="emb-cell">
+          <span class="emb-idx">d{{ i }}</span>
+          <span class="emb-val">{{ val }}</span>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if cosine_sims %}
+  <!-- Cosine similarity scores -->
+  <div class="section-card sim-card">
+    <h2 class="card-heading">Typing Similarity — Login vs Enrollment</h2>
+    <p class="card-note" style="margin-bottom:1rem;">
+      Cosine similarity between your latest login embedding and each enrollment sentence.
+      Values closer to <strong>1.0</strong> = more similar rhythm.
+      Clustering / accept-reject threshold arrives in Stage 3.
+    </p>
+    <div class="sim-grid">
+      {% for cs in cosine_sims %}
+        <div class="sim-card-item">
+          <div class="sim-score {{ 'sim-high' if cs.sim > 0.85 else ('sim-med' if cs.sim > 0.6 else 'sim-low') }}">
+            {{ cs.sim }}
+          </div>
+          <div class="sim-label">Enrollment {{ cs.prompt_index + 1 }}</div>
+          <div class="sim-prompt">"{{ cs.prompt_text }}"</div>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if verify_result %}
+  <!-- Stage 3: Verification result -->
+  <div class="section-card verify-card">
+    <h2 class="card-heading">Behavioral Verification — Latest Login</h2>
+    <div class="verify-layout">
+      <div class="verify-score-block">
+        <div class="verify-score {{ 'verify-pass' if verify_result.decision else 'verify-fail' }}">
+          {{ verify_result.score }}
+        </div>
+        <div class="verify-score-label">Match Score</div>
+      </div>
+      <div class="verify-details">
+        <div class="verify-badge {{ 'vbadge-accept' if verify_result.decision else 'vbadge-reject' }}">
+          {{ 'Behavioral Match ✓' if verify_result.decision else 'Below Threshold ⚠' }}
+        </div>
+        <div class="verify-row">
+          <span class="verify-key">Threshold</span>
+          <span class="verify-val">{{ verify_result.threshold }}</span>
+        </div>
+        <div class="verify-row">
+          <span class="verify-key">Decision</span>
+          <span class="verify-val {{ 'vtext-accept' if verify_result.decision else 'vtext-reject' }}">
+            {{ 'ACCEPT' if verify_result.decision else 'REJECT' }} (informational)
+          </span>
+        </div>
+        <p class="verify-note">
+          Behavioral verification is <strong>informational only</strong> at this stage —
+          login is never hard-blocked. This is by design (cold-start safety, graceful degradation).
+          Threshold will be calibrated to the EER point in Stage 3 C4.
+        </p>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if stage3_ready %}
+  <!-- Stage 3: Profile growth -->
+  <div class="section-card profile-card">
+    <h2 class="card-heading">Biometric Profile — C3 Online Refinement</h2>
+    <div class="profile-stats">
+      <div class="profile-stat">
+        <div class="profile-num">{{ profile_count }}</div>
+        <div class="profile-label">Profile Samples</div>
+      </div>
+      <div class="profile-stat">
+        <div class="profile-num">{{ max_profile_size }}</div>
+        <div class="profile-label">Cap</div>
+      </div>
+
+    </div>
+    <!-- Progress bar -->
+    <div class="profile-bar-wrap">
+      <div class="profile-bar" style="width: {{ [(profile_count / max_profile_size * 100)|int, 100]|min }}%"></div>
+    </div>
+    <p class="profile-bar-label">{{ profile_count }} / {{ max_profile_size }} samples</p>
+    {% if profile_log %}
+    <div class="profile-log">
+      <div class="profile-log-title">Recent Additions</div>
+      {% for entry in profile_log %}
+        <div class="profile-log-row">
+          <span class="tag {{ 'tag-enroll' if entry.source == 'enrollment' else 'tag-login' }}">
+            {{ entry.source }}
+          </span>
+          <span class="profile-log-time">{{ entry.created_at }}</span>
+        </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <!-- Sequence table -->
+  <div class="section-card">
+    <h2 class="card-heading">Recorded Sequences</h2>
+    {% if rows %}
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Source</th>
+            <th>Prompt</th>
+            <th>Events</th>
+            <th>Captured At</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+          <tr>
+            <td>
+              <span class="tag {{ 'tag-enroll' if row.source == 'enrollment' else 'tag-login' }}">
+                {{ row.source }}
+              </span>
+            </td>
+            <td class="prompt-cell">{{ row.prompt_text }}</td>
+            <td class="mono">{{ row.raw_events_json | fromjson_len }}</td>
+            <td class="mono small">{{ row.created_at }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+      <p class="empty-state">No sequences yet. This shouldn't happen — check your registration.</p>
+    {% endif %}
+  </div>
+
+  <!-- DoD checklist -->
+  <div class="section-card dod-card">
+    <h2 class="card-heading">Stage 1 Definition of Done</h2>
+    <ul class="dod-list">
+      <li class="dod-item {{ 'done' if enrollment_count >= 3 else 'pending' }}">
+        <span class="dod-check">{{ "✓" if enrollment_count >= 3 else "…" }}</span>
+        Register stores 3 <code>raw_sequences</code> rows (enrollment) — found <strong>{{ enrollment_count }}</strong>
+      </li>
+      <li class="dod-item {{ 'done' if login_count >= 1 else 'pending' }}">
+        <span class="dod-check">{{ "✓" if login_count >= 1 else "…" }}</span>
+        Login stores rows with <code>source='login'</code> on correct password — found <strong>{{ login_count }}</strong>
+      </li>
+      <li class="dod-item done">
+        <span class="dod-check">✓</span>
+        Wrong password → no row added
+      </li>
+      <li class="dod-item {{ 'done' if sample_stats and sample_stats.min_delta > 0 else 'pending' }}">
+        <span class="dod-check">{{ "✓" if sample_stats and sample_stats.min_delta > 0 else "…" }}</span>
+        Timestamps are NOT all identical/zero — real timing gaps confirmed
+      </li>
+    </ul>
+  </div>
+
+</div>
+{% endblock %}

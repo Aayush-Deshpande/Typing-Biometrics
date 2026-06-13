@@ -1,0 +1,375 @@
+{% extends "base.html" %}
+{% block title %}Continuous Auth Demo — KeyAuth{% endblock %}
+
+{% block content %}
+<div class="session-demo-page">
+  <div class="dash-hero">
+    <div class="dash-hero-text">
+      <h1 class="dash-title">Continuous Auth <span class="accent">Simulation</span></h1>
+      <p class="dash-subtitle">Simulate a session to test real-time hijack detection. First 4 prompts are genuine; next 4 simulate impostor credentials.</p>
+    </div>
+    <div class="dash-badge">
+      <span class="stage-pill">Stage 4 — Demo</span>
+    </div>
+  </div>
+
+  <div class="demo-layout">
+    <!-- Typing Pane -->
+    <div class="demo-card-pane">
+      <!-- Lockout Alert -->
+      <div id="lockoutAlert" class="demo-lockout-box hidden">
+        <div class="lockout-header">
+          <span class="lockout-icon">🚨</span>
+          <h2>Session Locked</h2>
+        </div>
+        <p>Continuous authentication has detected a typing pattern anomaly. The session has been terminated.</p>
+        <div class="lockout-stats">
+          <div class="lstat">
+            <span class="lstat-val" id="lockoutPromptNum">-</span>
+            <span class="lstat-label">Trigger Prompt</span>
+          </div>
+          <div class="lstat">
+            <span class="lstat-val" id="lockoutReaction">-</span>
+            <span class="lstat-label">Prompts to Lock</span>
+          </div>
+        </div>
+        <div class="lockout-actions">
+          <button id="btnRestart" class="btn btn-primary">Restart Simulation</button>
+          <a href="{{ url_for('dashboard') }}" class="btn btn-ghost">Return to Dashboard</a>
+        </div>
+      </div>
+
+      <!-- Active Prompt Box -->
+      <div id="promptBox" class="section-card typing-card">
+        <div class="prompt-header">
+          <span id="promptPhaseBadge" class="prompt-badge">Genuine Phase</span>
+          <span class="prompt-status">Prompt <span id="currentPromptIdx">1</span> of {{ prompts|length }}</span>
+        </div>
+        
+        <div class="demo-instructions" id="demoInstructions">
+          Type the prompt sentence below naturally to establish your genuine baseline.
+        </div>
+
+        <div class="prompt-sentence" id="demoSentence">Loading...</div>
+        
+        <input
+          id="demoInput"
+          type="text"
+          class="field-input prompt-input"
+          placeholder="Type the sentence above..."
+          autocomplete="off"
+          spellcheck="false"
+          autocorrect="off"
+          onpaste="return false;"
+        />
+
+        <div class="typing-footer">
+          <div class="capture-indicator" id="demoIndicator">
+            <span class="dot"></span>
+            <span id="demoEventCount">0 events captured</span>
+          </div>
+          <button id="btnSubmitPrompt" class="btn btn-primary btn-sm" disabled>
+            <span>Submit Prompt</span>
+            <span class="btn-arrow">→</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Status stats -->
+      <div class="stats-grid" style="margin-top: 1.5rem;">
+        <div class="stat-card">
+          <div class="stat-value" id="statLatestScore">-</div>
+          <div class="stat-label">Last Match Score</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="statACS">1.000</div>
+          <div class="stat-label">Rolling ACS</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="statThreshold">{{ threshold }}</div>
+          <div class="stat-label">Lockout Threshold</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Chart / History Pane -->
+    <div class="demo-chart-pane">
+      <div class="section-card chart-card">
+        <h2 class="card-heading">Authentication Confidence Score (ACS)</h2>
+        <div class="chart-container" style="position: relative; height:240px; width:100%">
+          <canvas id="acsChart"></canvas>
+        </div>
+      </div>
+
+      <div class="section-card history-card" style="margin-top: 1.5rem;">
+        <h2 class="card-heading">Session History</h2>
+        <div class="history-list" id="historyList">
+          <div class="history-empty">No prompts submitted in this session.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Load Chart.js from CDN -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<script>
+  const prompts = {{ prompts|tojson }};
+  const genuineCount = {{ genuine_count }};
+  const threshold = {{ threshold }};
+  
+  let currentIdx = 0;
+  let events = [];
+  let chart = null;
+  let acsHistory = [1.0]; // initial state
+  let promptLabels = ["Start"];
+
+  const inputEl = document.getElementById("demoInput");
+  const sentenceEl = document.getElementById("demoSentence");
+  const currentPromptIdxEl = document.getElementById("currentPromptIdx");
+  const promptPhaseBadge = document.getElementById("promptPhaseBadge");
+  const demoInstructions = document.getElementById("demoInstructions");
+  const countEl = document.getElementById("demoEventCount");
+  const indicatorEl = document.getElementById("demoIndicator");
+  const btnSubmit = document.getElementById("btnSubmitPrompt");
+  const btnRestart = document.getElementById("btnRestart");
+
+  const statLatestScore = document.getElementById("statLatestScore");
+  const statACS = document.getElementById("statACS");
+  const lockoutAlert = document.getElementById("lockoutAlert");
+  const promptBox = document.getElementById("promptBox");
+  const lockoutPromptNum = document.getElementById("lockoutPromptNum");
+  const lockoutReaction = document.getElementById("lockoutReaction");
+  const historyList = document.getElementById("historyList");
+
+  // Keyboard events listeners
+  inputEl.addEventListener("keydown", (e) => {
+    if (e.repeat) return;
+    events.push({ key: e.key, type: "keydown", time: performance.now() });
+    countEl.textContent = `${events.length} events captured`;
+    indicatorEl.classList.add("active");
+  });
+
+  inputEl.addEventListener("keyup", (e) => {
+    events.push({ key: e.key, type: "keyup", time: performance.now() });
+    countEl.textContent = `${events.length} events captured`;
+  });
+
+  inputEl.addEventListener("input", () => {
+    const target = sentenceEl.textContent.trim();
+    if (inputEl.value.trim() === target) {
+      btnSubmit.disabled = false;
+      promptBox.classList.add("done");
+    } else {
+      btnSubmit.disabled = true;
+      promptBox.classList.remove("done");
+    }
+  });
+
+  function loadPrompt() {
+    if (currentIdx >= prompts.length) {
+      alert("Session completed successfully without lockout!");
+      inputEl.disabled = true;
+      return;
+    }
+
+    sentenceEl.textContent = prompts[currentIdx];
+    currentPromptIdxEl.textContent = currentIdx + 1;
+    inputEl.value = "";
+    inputEl.disabled = false;
+    btnSubmit.disabled = true;
+    promptBox.classList.remove("done");
+    events = [];
+    countEl.textContent = "0 events captured";
+    indicatorEl.classList.remove("active");
+
+    if (currentIdx < genuineCount) {
+      promptPhaseBadge.textContent = "Genuine Phase";
+      promptPhaseBadge.className = "prompt-badge";
+      demoInstructions.textContent = "Type the prompt sentence below naturally to establish your genuine baseline.";
+    } else {
+      promptPhaseBadge.textContent = "Impostor Simulation";
+      promptPhaseBadge.className = "prompt-badge impostor-badge";
+      demoInstructions.textContent = "WARNING: Hijack simulation active! Type the prompt sentence. The system will swap your typing embeddings with a CMU impostor profile.";
+    }
+    inputEl.focus();
+  }
+
+  // Submit prompt via AJAX
+  btnSubmit.addEventListener("click", () => {
+    const impostorMode = currentIdx >= genuineCount;
+    
+    btnSubmit.disabled = true;
+    inputEl.disabled = true;
+
+    fetch("{{ url_for('session_demo_submit') }}", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        prompt_num: currentIdx,
+        events: events,
+        impostor_mode: impostorMode
+      })
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.error) {
+        alert("Error: " + data.message);
+        loadPrompt();
+        return;
+      }
+
+      // Update statistics
+      statLatestScore.textContent = data.score.toFixed(3);
+      statACS.textContent = data.acs.toFixed(3);
+
+      // Add to history list
+      addHistoryItem(currentIdx, data.score, data.acs, impostorMode);
+
+      // Update chart data
+      promptLabels.push(`P${currentIdx + 1}`);
+      acsHistory.push(data.acs);
+      updateChart(data.locked);
+
+      if (data.locked) {
+        // Locked state
+        lockoutAlert.classList.remove("hidden");
+        promptBox.classList.add("hidden");
+        lockoutPromptNum.textContent = `Prompt ${currentIdx + 1}`;
+        lockoutReaction.textContent = data.prompts_after_injection !== null 
+          ? `${data.prompts_after_injection} prompts` 
+          : "N/A";
+      } else {
+        // Continue to next prompt
+        currentIdx++;
+        loadPrompt();
+      }
+    })
+    .catch(err => {
+      console.error(err);
+      alert("Error submitting sequence.");
+      loadPrompt();
+    });
+  });
+
+  function addHistoryItem(idx, score, acs, impostor) {
+    if (idx === 0) {
+      historyList.innerHTML = "";
+    }
+    const item = document.createElement("div");
+    item.className = `history-item ${impostor ? 'history-impostor' : 'history-genuine'}`;
+    item.innerHTML = `
+      <div class="h-row-title">
+        <span class="h-prompt">Prompt ${idx + 1}: "${prompts[idx].substring(0, 25)}..."</span>
+        <span class="h-badge">${impostor ? 'IMPOSTOR' : 'GENUINE'}</span>
+      </div>
+      <div class="h-row-details">
+        <span>Score: <strong>${score.toFixed(4)}</strong></span>
+        <span>ACS: <strong>${acs.toFixed(4)}</strong></span>
+      </div>
+    `;
+    historyList.insertBefore(item, historyList.firstChild);
+  }
+
+  btnRestart.addEventListener("click", () => {
+    fetch("{{ url_for('session_demo') }}") // This GET resets the session acs_state
+    .then(() => {
+      currentIdx = 0;
+      acsHistory = [1.0];
+      promptLabels = ["Start"];
+      lockoutAlert.classList.add("hidden");
+      promptBox.classList.remove("hidden");
+      historyList.innerHTML = '<div class="history-empty">No prompts submitted in this session.</div>';
+      statLatestScore.textContent = "-";
+      statACS.textContent = "1.000";
+      
+      // Reset chart
+      chart.data.labels = promptLabels;
+      chart.data.datasets[0].data = acsHistory;
+      chart.data.datasets[0].borderColor = '#6d8cff';
+      chart.update();
+      
+      loadPrompt();
+    });
+  });
+
+  // Chart setup
+  function initChart() {
+    const ctx = document.getElementById('acsChart').getContext('2d');
+    chart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: promptLabels,
+        datasets: [{
+          label: 'ACS Confidence',
+          data: acsHistory,
+          borderColor: '#6d8cff',
+          backgroundColor: 'rgba(109, 140, 255, 0.1)',
+          borderWidth: 2,
+          fill: true,
+          tension: 0.1,
+          pointRadius: 4,
+          pointHoverRadius: 6
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          y: {
+            min: 0,
+            max: 1.1,
+            grid: { color: 'rgba(255,255,255,0.05)' },
+            ticks: { color: '#9ca3af' }
+          },
+          x: {
+            grid: { color: 'rgba(255,255,255,0.05)' },
+            ticks: { color: '#9ca3af' }
+          }
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: { enabled: true }
+        }
+      }
+    });
+
+    // Draw custom line for threshold by injecting custom plugin or grid line configurations
+    // Let's use annotation plugin equivalent or simple horizontal baseline
+    chart.options.plugins.annotation = {
+      annotations: {
+        line1: {
+          type: 'line',
+          yMin: threshold,
+          yMax: threshold,
+          borderColor: 'rgb(248, 113, 113)',
+          borderWidth: 2,
+          borderDash: [6, 6],
+          label: {
+            content: `Threshold: ${threshold}`,
+            enabled: true,
+            position: "end"
+          }
+        }
+      }
+    };
+    chart.update();
+  }
+
+  function updateChart(isLocked) {
+    chart.data.labels = promptLabels;
+    chart.data.datasets[0].data = acsHistory;
+    if (isLocked) {
+      chart.data.datasets[0].borderColor = '#f87171';
+      chart.data.datasets[0].backgroundColor = 'rgba(248, 113, 113, 0.08)';
+    }
+    chart.update();
+  }
+
+  document.addEventListener("DOMContentLoaded", () => {
+    initChart();
+    loadPrompt();
+  });
+</script>
+{% endblock %}

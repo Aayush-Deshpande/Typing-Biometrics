@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}Login — KeyAuth{% endblock %}
+
+{% block content %}
+<div class="auth-page auth-page-center">
+  <div class="auth-card">
+    <div class="auth-header">
+      <h1 class="auth-title">Welcome Back</h1>
+      <p class="auth-subtitle">Enter your credentials and type the prompt naturally.</p>
+    </div>
+
+    <form id="loginForm" method="POST" action="{{ url_for('login') }}">
+      <input type="hidden" name="prompt_index" value="{{ prompt_index }}" />
+      <input type="hidden" name="prompt_text"  value="{{ prompt_text }}" />
+      <input type="hidden" name="events_login" id="eventsHidden" value="[]" />
+
+      <div class="field-group">
+        <label for="username" class="field-label">Username</label>
+        <input id="username" name="username" type="text" class="field-input"
+               placeholder="your_username" autocomplete="username" required />
+      </div>
+
+      <div class="field-group">
+        <label for="password" class="field-label">Password</label>
+        <input id="password" name="password" type="password" class="field-input"
+               placeholder="••••••••" autocomplete="current-password" required />
+      </div>
+
+      <!-- Behavioral prompt -->
+      <div class="form-section" style="margin-top:1.5rem;">
+        <h2 class="section-label">Typing Sample</h2>
+        <p class="section-desc">Type the sentence below exactly as shown.</p>
+        <div class="prompt-block active" id="loginPromptBlock">
+          <div class="prompt-header">
+            <span class="prompt-badge">Live</span>
+            <span class="prompt-status" id="loginStatus">Type the sentence ↓</span>
+          </div>
+          <div class="prompt-sentence" id="loginSentence">{{ prompt_text }}</div>
+          <input
+            id="loginPromptInput"
+            type="text"
+            class="field-input prompt-input"
+            placeholder="Type the sentence above..."
+            autocomplete="off"
+            spellcheck="false"
+            autocorrect="off"
+            onpaste="return false;"
+          />
+          <div class="capture-indicator" id="loginIndicator">
+            <span class="dot"></span>
+            <span id="loginEventCount">0 events captured</span>
+          </div>
+        </div>
+      </div>
+
+      <button type="submit" class="btn btn-primary btn-full" style="margin-top:1.5rem;">
+        <span>Sign In</span>
+        <span class="btn-arrow">→</span>
+      </button>
+    </form>
+
+    <p class="auth-footer">
+      Don't have an account? <a href="{{ url_for('register') }}">Register here</a>
+    </p>
+  </div>
+</div>
+
+<script>
+  const events   = [];
+  const hidden   = document.getElementById("eventsHidden");
+  const input    = document.getElementById("loginPromptInput");
+  const countEl  = document.getElementById("loginEventCount");
+  const indicator = document.getElementById("loginIndicator");
+  const statusEl = document.getElementById("loginStatus");
+  const sentence = document.getElementById("loginSentence").textContent.trim();
+
+  input.addEventListener("keydown", (e) => {
+    if (e.repeat) return;
+    events.push({ key: e.key, type: "keydown", time: performance.now() });
+    hidden.value = JSON.stringify(events);
+    countEl.textContent = `${events.length} events captured`;
+    indicator.classList.add("active");
+  });
+
+  input.addEventListener("keyup", (e) => {
+    events.push({ key: e.key, type: "keyup", time: performance.now() });
+    hidden.value = JSON.stringify(events);
+    countEl.textContent = `${events.length} events captured`;
+  });
+
+  input.addEventListener("input", () => {
+    if (input.value.trim() === sentence) {
+      statusEl.textContent = "✓ Captured";
+      document.getElementById("loginPromptBlock").classList.add("done");
+    }
+  });
+</script>
+{% endblock %}

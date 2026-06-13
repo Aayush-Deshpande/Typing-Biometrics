@@ -1,0 +1,168 @@
+{% extends "base.html" %}
+{% block title %}Register — KeyAuth{% endblock %}
+
+{% block content %}
+<div class="auth-page">
+  <div class="auth-card">
+    <div class="auth-header">
+      <h1 class="auth-title">Create Account</h1>
+      <p class="auth-subtitle">We'll capture your typing style to build your biometric profile.</p>
+    </div>
+
+    <form id="registerForm" method="POST" action="{{ url_for('register') }}">
+
+      <!-- ── Credentials ──────────────────────────────────────────── -->
+      <div class="form-section">
+        <h2 class="section-label">Account Details</h2>
+        <div class="field-group">
+          <label for="username" class="field-label">Username</label>
+          <input id="username" name="username" type="text" class="field-input"
+                 placeholder="your_username" autocomplete="username" required />
+        </div>
+        <div class="field-group">
+          <label for="password" class="field-label">Password</label>
+          <input id="password" name="password" type="password" class="field-input"
+                 placeholder="••••••••" autocomplete="new-password" required />
+        </div>
+      </div>
+
+      <!-- ── Behavioral Enrollment ────────────────────────────────── -->
+      <div class="form-section">
+        <h2 class="section-label">Behavioral Enrollment</h2>
+        <p class="section-desc">
+          Type each sentence <em>naturally</em> — don't rush or correct mistakes.
+          Your rhythm matters, not your speed.
+          You'll type each sentence <strong>3 times</strong> to build a precise biometric profile.
+        </p>
+
+        <div id="promptsContainer">
+          {% for i, prompt in enumerate(prompts) %}
+          <div class="prompt-block {{ 'active' if i == 0 else 'locked' }}" id="prompt-{{ i }}">
+            <div class="prompt-header">
+              <span class="prompt-badge">{{ i + 1 }}/{{ prompts|length }}</span>
+              <span class="prompt-status" id="status-{{ i }}">
+                {{ "Type this sentence ↓" if i == 0 else "Complete previous first" }}
+              </span>
+            </div>
+            <div class="prompt-sentence" id="sentence-{{ i }}">{{ prompt }}</div>
+            <input
+              id="promptInput-{{ i }}"
+              type="text"
+              class="field-input prompt-input"
+              placeholder="Type the sentence above..."
+              {{ 'disabled' if i != 0 else '' }}
+              autocomplete="off"
+              spellcheck="false"
+              autocorrect="off"
+              onpaste="return false;"
+            />
+            <div class="capture-indicator" id="indicator-{{ i }}">
+              <span class="dot"></span>
+              <span id="eventCount-{{ i }}">0 events captured</span>
+            </div>
+            <!-- Hidden field to hold serialised events for this prompt -->
+            <input type="hidden" name="events_{{ i }}" id="eventsHidden-{{ i }}" value="[]" />
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+
+      <button type="submit" id="submitBtn" class="btn btn-primary btn-full" disabled>
+        <span>Complete Registration</span>
+        <span class="btn-arrow">→</span>
+      </button>
+    </form>
+  </div>
+
+  <!-- Side panel -->
+  <div class="auth-side">
+    <div class="side-card">
+      <div class="side-icon">🧬</div>
+      <h3>What we capture</h3>
+      <ul class="side-list">
+        <li><span class="tag">keydown</span> when you press a key</li>
+        <li><span class="tag">keyup</span> when you release a key</li>
+        <li><span class="tag">time</span> in sub-ms precision</li>
+      </ul>
+      <p class="side-note">Nothing is sent until you click submit. Your raw typing data stays between you and this app.</p>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ── Keystroke capture ─────────────────────────────────────────────
+  const NUM_PROMPTS = {{ prompts|length }};
+  const allEvents  = Array.from({ length: NUM_PROMPTS }, () => []);
+  const completed  = Array(NUM_PROMPTS).fill(false);
+
+  function attachCapture(promptIndex) {
+    const input     = document.getElementById(`promptInput-${promptIndex}`);
+    const countEl   = document.getElementById(`eventCount-${promptIndex}`);
+    const hiddenEl  = document.getElementById(`eventsHidden-${promptIndex}`);
+    const indicator = document.getElementById(`indicator-${promptIndex}`);
+
+    // Reset events array for this prompt (clean slate if re-attached somehow)
+    allEvents[promptIndex] = [];
+
+    input.addEventListener("keydown", (e) => {
+      if (e.repeat) return;
+      allEvents[promptIndex].push({ key: e.key, type: "keydown", time: performance.now() });
+      hiddenEl.value = JSON.stringify(allEvents[promptIndex]);
+      countEl.textContent = `${allEvents[promptIndex].length} events captured`;
+      indicator.classList.add("active");
+    });
+
+    input.addEventListener("keyup", (e) => {
+      allEvents[promptIndex].push({ key: e.key, type: "keyup", time: performance.now() });
+      hiddenEl.value = JSON.stringify(allEvents[promptIndex]);
+      countEl.textContent = `${allEvents[promptIndex].length} events captured`;
+    });
+
+    // Use a named handler so we can remove it after it fires once
+    // (prevents markComplete being called repeatedly or stacking listeners)
+    const promptText = document.getElementById(`sentence-${promptIndex}`).textContent.trim();
+    function onInput() {
+      if (input.value.trim() === promptText) {
+        input.removeEventListener("input", onInput); // fire-once
+        markComplete(promptIndex);
+      }
+    }
+    input.addEventListener("input", onInput);
+  }
+
+  function markComplete(i) {
+    // Guard: ignore if already marked (prevents double-firing)
+    if (completed[i]) return;
+    completed[i] = true;
+
+    const block    = document.getElementById(`prompt-${i}`);
+    const statusEl = document.getElementById(`status-${i}`);
+    block.classList.add("done");
+    statusEl.textContent = "✓ Captured";
+
+    // Unlock next prompt
+    if (i + 1 < NUM_PROMPTS) {
+      const nextBlock  = document.getElementById(`prompt-${i + 1}`);
+      const nextInput  = document.getElementById(`promptInput-${i + 1}`);
+      const nextStatus = document.getElementById(`status-${i + 1}`);
+      nextBlock.classList.remove("locked");
+      nextBlock.classList.add("active");
+      nextInput.disabled = false;
+      nextStatus.textContent = "Type this sentence ↓";
+      nextInput.focus();
+      attachCapture(i + 1);
+    }
+
+    checkAllDone();
+  }
+
+  function checkAllDone() {
+    if (completed.every(Boolean)) {
+      document.getElementById("submitBtn").disabled = false;
+    }
+  }
+
+  // Attach capture to the first prompt immediately
+  attachCapture(0);
+</script>
+{% endblock %}

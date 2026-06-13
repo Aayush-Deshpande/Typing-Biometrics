@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}About — KeyAuth{% endblock %}
+
+{% block content %}
+<div class="about-page">
+  <div class="section-card hero-card">
+    <h1 class="about-title">How it Works</h1>
+    <p class="about-subtitle">Continuous Behavioral Biometrics via Keystroke Dynamics</p>
+  </div>
+
+  <div class="about-grid">
+    <!-- Explanations Column -->
+    <div class="about-info-col">
+      <div class="info-card">
+        <div class="info-step">
+          <span class="step-num">1</span>
+          <div class="step-body">
+            <h3>Real-Time Capture</h3>
+            <p>The browser monitors raw keyup/keydown event sequences down to millisecond-level precision, tracking key dwell times and inter-key flights.</p>
+          </div>
+        </div>
+
+        <div class="info-step">
+          <span class="step-num">2</span>
+          <div class="step-body">
+            <h3>Siamese LSTM Embeddings</h3>
+            <p>An LSTM network (trained on the CMU Keystroke Benchmark and fine-tuned) processes raw sequences to produce distinct 16-dimensional typing embeddings.</p>
+          </div>
+        </div>
+
+        <div class="info-step">
+          <span class="step-num">3</span>
+          <div class="step-body">
+            <h3>Profile Clustering</h3>
+            <p>DBSCAN identifies stable patterns in user enrollment samples, clustering them into profiles that represent the user's authentic typing signature.</p>
+          </div>
+        </div>
+
+        <div class="info-step">
+          <span class="step-num">4</span>
+          <div class="step-body">
+            <h3>Behavioral Verification</h3>
+            <p>During login, typing patterns are verified using cosine similarity against the profile clusters, rejecting samples that fall below the calibrated threshold.</p>
+          </div>
+        </div>
+
+        <div class="info-step">
+          <span class="step-num">5</span>
+          <div class="step-body">
+            <h3>Continuous Auth</h3>
+            <p>Active session validation uses an Exponential Moving Average (EMA) to maintain a rolling Authentication Confidence Score. If hijacked, the system lockouts the session.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Diagram Column -->
+    <div class="about-diagram-col">
+      <div class="section-card diagram-card">
+        <h2 class="card-heading">Pipeline Architecture</h2>
+        <p class="card-note" style="margin-bottom:1rem;">End-to-end data flow from real-time capture to continuous authentication decision.</p>
+        <div class="diagram-wrapper">
+          <img src="{{ url_for('static', filename='architecture_diagram.png') }}" alt="Biometric Authentication Architecture Diagram" class="arch-diagram-img" />
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="about-footer-nav" style="margin-top: 2rem; text-align: center;">
+    {% if session.get('username') %}
+      <a href="{{ url_for('dashboard') }}" class="btn btn-primary">
+        <span>Go to Dashboard</span>
+        <span class="btn-arrow">→</span>
+      </a>
+    {% else %}
+      <a href="{{ url_for('login') }}" class="btn btn-primary">
+        <span>Proceed to Login</span>
+        <span class="btn-arrow">→</span>
+      </a>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
